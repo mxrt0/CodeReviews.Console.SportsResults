@@ -1,16 +1,45 @@
-﻿using Microsoft.Extensions.Configuration;
-namespace SportsResultsNotifier;
+﻿namespace SportsResultsNotifier;
 
 public class Program
 {
     static async Task Main()
     {
-        var scraper = new WebScraper();
-        await scraper.LoadWebDocument();
-        string text = scraper.FetchData();
-        var config = new ConfigurationBuilder().AddJsonFile("email-creds.json", optional: false, reloadOnChange: true).Build();
-        var emailSender = new EmailSender(config);
-        emailSender.SendEmail(text);
-        Console.ReadKey();
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            Console.WriteLine("Service is running.");
+
+            var scraper = new WebScraper(cts);
+            scraper.ScrapeToEmail();
+
+            var cancellationListener = Task.Run(() =>
+            {
+                Console.WriteLine("Press 's' at any time to stop service.");
+                while (!cts.IsCancellationRequested)
+                {
+                    var key = Console.ReadKey(true);
+                    if (key.KeyChar == 's')
+                    {
+                        Console.WriteLine("Terminating...");
+                        cts.Cancel();
+                        break;
+                    }
+                }
+            });
+
+            await cancellationListener;
+
+            Console.WriteLine("Service terminated!");
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Unexpected error: " + ex.Message);
+        }
     }
 }

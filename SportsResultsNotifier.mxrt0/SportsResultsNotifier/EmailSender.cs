@@ -35,7 +35,6 @@ public class EmailSender
         message.Body = new TextPart("html")
         {
             Text = body,
-
         };
 
         try

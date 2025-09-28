@@ -1,13 +1,61 @@
 ﻿using HtmlAgilityPack;
+using Microsoft.Extensions.Configuration;
 using System.Text;
 
 namespace SportsResultsNotifier;
 
 public class WebScraper
 {
-    private HtmlDocument _document;
+    private CancellationTokenSource _cts;
+    private Task? _worker;
+    private HtmlDocument? _document;
+    private IConfiguration _emailConfig;
+    private EmailSender _emailSender;
     public const string BasketballReferenceUrl = "https://www.basketball-reference.com/boxscores/?month={0}&day={1}&year={2}";
-    public async Task LoadWebDocument()
+
+    public WebScraper(CancellationTokenSource cts)
+    {
+        _cts = cts;
+        _emailConfig = new ConfigurationBuilder().AddJsonFile("email-creds.json", optional: false, reloadOnChange: true).Build();
+        _emailSender = new(_emailConfig);
+    }
+
+    public void ScrapeToEmail()
+    {
+        if (_worker != null && !_worker.IsCompleted)
+        {
+            throw new InvalidOperationException("Service already running!");
+        }
+
+        _worker = Task.Run(() => RunAsync(_cts.Token));
+    }
+
+    private async Task RunAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await LoadWebDocument();
+                string text = FetchData();
+                _emailSender.SendEmail(text);
+            }
+            catch (Exception ex) when (!(ex is TaskCanceledException))
+            {
+                Console.WriteLine($"Scraper failed: {ex.Message}");
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromDays(1), token);
+            }
+            catch (TaskCanceledException)
+            {
+                break;
+            }
+        }
+    }
+    private async Task LoadWebDocument()
     {
         HtmlWeb web = new();
         Console.WriteLine("Loading web document...");
@@ -21,7 +69,7 @@ public class WebScraper
         Console.WriteLine("\nSuccessfully loaded web document!");
     }
 
-    public string FetchData()
+    private string FetchData()
     {
         var sb = new StringBuilder();
         sb.AppendLine($"<h2>Daily NBA Games Report: ({DateTime.Today.ToString("dd-MM-yyyy")})</h2>");
